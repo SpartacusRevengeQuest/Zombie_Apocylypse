@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>My HTML Games Manager</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #121212;
+    color: #eee;
+    max-width: 700px;
+    margin: auto;
+    padding: 2rem;
+  }
+  h1 {
+    text-align: center;
+    margin-bottom: 2rem;
+    color: #0af;
+  }
+  form {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 2rem;
+  }
+  input[type="text"] {
+    flex: 1;
+    padding: 0.6rem 1rem;
+    font-size: 1rem;
+    border-radius: 6px;
+    border: none;
+    outline: none;
+  }
+  button[type="submit"] {
+    background: #0af;
+    border: none;
+    color: white;
+    padding: 0 1.5rem;
+    border-radius: 6px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background 0.3s ease;
+  }
+  button[type="submit"]:hover {
+    background: #08c;
+  }
+
+  #gamesList {
+    display: grid;
+    grid-template-columns: repeat(auto-fill,minmax(200px,1fr));
+    gap: 1.5rem;
+    padding: 0;
+    list-style: none;
+  }
+
+  .game-card {
+    background: #1e1e1e;
+    border-radius: 12px;
+    padding: 1.2rem 1rem 1.2rem 1rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.7);
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+  }
+  .game-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 8px 18px rgba(10,170,255,0.7);
+  }
+  .game-link {
+    color: #0af;
+    font-weight: 600;
+    font-size: 1.1rem;
+    text-decoration: none;
+    flex-grow: 1;
+    text-align: center;
+  }
+  .game-link:hover {
+    text-decoration: underline;
+  }
+  .remove-btn {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    color: #f55;
+    font-weight: bold;
+    font-size: 1.2rem;
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.2s ease;
+  }
+  .remove-btn:hover {
+    color: #ff0000;
+  }
+</style>
+</head>
+<body>
+
+<h1>My HTML Games Manager</h1>
+
+<form id="gameForm">
+  <input type="text" id="gameTitle" placeholder="Game Title" required />
+  <input type="text" id="gameURL" placeholder="Game URL (relative or absolute)" required />
+  <button type="submit">Add Game</button>
+</form>
+
+<ul id="gamesList"></ul>
+
+<script>
+  const gameForm = document.getElementById('gameForm');
+  const gamesList = document.getElementById('gamesList');
+
+  // Load saved games from localStorage or start empty
+  let games = JSON.parse(localStorage.getItem('myGames')) || [];
+
+  function saveGames() {
+    localStorage.setItem('myGames', JSON.stringify(games));
+  }
+
+  function renderGames() {
+    gamesList.innerHTML = '';
+    games.forEach((game, index) => {
+      const li = document.createElement('li');
+      li.className = 'game-card';
+
+      const link = document.createElement('a');
+      link.href = game.url;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = game.title;
+      link.className = 'game-link';
+
+      const removeBtn = document.createElement('span');
+      removeBtn.textContent = '✖';
+      removeBtn.className = 'remove-btn';
+      removeBtn.title = 'Remove this game';
+      removeBtn.onclick = () => {
+        games.splice(index, 1);
+        saveGames();
+        renderGames();
+      };
+
+      li.appendChild(link);
+      li.appendChild(removeBtn);
+      gamesList.appendChild(li);
+    });
+  }
+
+  gameForm.addEventListener('submit', e => {
+    e.preventDefault();
+    const title = document.getElementById('gameTitle').value.trim();
+    const url = document.getElementById('gameURL').value.trim();
+
+    if (title && url) {
+      games.push({ title, url });
+      saveGames();
+      renderGames();
+      gameForm.reset();
+    }
+  });
+
+  // Initial render
+  renderGames();
+</script>
+
+</body>
+</html>
