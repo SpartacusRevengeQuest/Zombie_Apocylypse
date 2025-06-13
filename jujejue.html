@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Zombyte 2-Player with Human-like AI</title>
+<style>
+  body {
+    margin:0; overflow:hidden; background:#222; color:#eee;
+    font-family: monospace;
+    user-select: none;
+  }
+  canvas {
+    background: #111;
+    display: block;
+    margin: 0 auto;
+    border: 3px solid #555;
+  }
+  #scoreboard {
+    text-align:center;
+    margin: 10px;
+    font-size: 18px;
+  }
+  #gameover {
+    position: absolute;
+    top: 40%;
+    width: 100%;
+    text-align: center;
+    font-size: 3em;
+    color: crimson;
+    display: none;
+  }
+</style>
+</head>
+<body>
+
+<div id="scoreboard">P1 Score: 0 | Ammo: 6 | P2 Score: 0 | Ammo: 6 | Wave: 1</div>
+<div id="gameover">GAME OVER<br>Refresh to Restart</div>
+<canvas id="game" width="600" height="400"></canvas>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+const WIDTH = canvas.width;
+const HEIGHT = canvas.height;
+
+const PLAYER_SIZE = 20;
+const BULLET_SIZE = 5;
+const PLAYER_SPEED = 4;
+const BULLET_SPEED = 8;
+const ZOMBIE_BASE_SPEED = 1;
+
+let bullets = [];
+let zombies = [];
+let wave = 1;
+let gameOver = false;
+
+let keys = {};
+
+// Player 1 object
+let player1 = {
+  x: WIDTH / 4,
+  y: HEIGHT / 2,
+  size: PLAYER_SIZE,
+  rotation: 0,
+  ammo: 6,
+  score: 0,
+  color: 'lime',
+};
+
+// Player 2 object (AI)
+let player2 = {
+  x: WIDTH * 3 / 4,
+  y: HEIGHT / 2,
+  size: PLAYER_SIZE,
+  rotation: 0,
+  ammo: 6,
+  score: 0,
+  color: 'cyan',
+  // AI state
+  reloadCooldown: 0,
+  shootCooldown: 0,
+  aimWobble: 0,
+  currentAction: 'idle', // 'idle', 'move', 'flee'
+  moveTarget: {x: WIDTH * 3 / 4, y: HEIGHT / 2},
+  thinkTime: 0
+};
+
+document.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+
+  if(e.key === ' ' && !gameOver) reload(player1);  // P1 reload with Space
+});
+
+document.addEventListener('keyup', e => {
+  keys[e.key.toLowerCase()] = false;
+});
+
+function reload(player) {
+  if(player.ammo < 6) {
+    player.ammo = 6;
+    updateScoreboard();
+  }
+}
+
+function shoot(player) {
+  if(player.ammo <= 0) return;
+  player.ammo--;
+
+  const angle = player.rotation;
+  bullets.push({
+    x: player.x,
+    y: player.y,
+    vx: Math.cos(angle) * BULLET_SPEED,
+    vy: Math.sin(angle) * BULLET_SPEED,
+    size: BULLET_SIZE,
+    owner: player
+  });
+  updateScoreboard();
+}
+
+function updatePlayer(player, controls) {
+  // Movement
+  if(keys[controls.up]) player.y -= PLAYER_SPEED;
+  if(keys[controls.down]) player.y += PLAYER_SPEED;
+  if(keys[controls.left]) player.x -= PLAYER_SPEED;
+  if(keys[controls.right]) player.x += PLAYER_SPEED;
+
+  // Clamp inside canvas
+  player.x = Math.max(player.size / 2, Math.min(WIDTH - player.size / 2, player.x));
+  player.y = Math.max(player.size / 2, Math.min(HEIGHT - player.size / 2, player.y));
+
+  // Rotation
+  if(keys[controls.rotateLeft]) {
+    player.rotation -= 0.07;
+  }
+  if(keys[controls.rotateRight]) {
+    player.rotation += 0.07;
+  }
+
+  // Keep rotation between 0 and 2PI
+  if(player.rotation < 0) player.rotation += Math.PI * 2;
+  if(player.rotation > Math.PI * 2) player.rotation -= Math.PI * 2;
+
+  // Shooting: fire on key press
+  if(keys[controls.shoot]) {
+    shoot(player);
+    keys[controls.shoot] = false; // single shot per key press
+  }
+}
+
+function spawnZombie() {
+  const size = 20;
+  let x, y;
+  if(Math.random() < 0.5) {
+    x = Math.random() < 0.5 ? -size : WIDTH + size;
+    y = Math.random() * HEIGHT;
+  } else {
+    x = Math.random() * WIDTH;
+    y = Math.random() < 0.5 ? -size : HEIGHT + size;
+  }
+  zombies.push({x, y, size, speed: ZOMBIE_BASE_SPEED + wave * 0.2});
+}
+
+// AI logic for Player 2
+function updateAI() {
+  if(gameOver) return;
+
+  // Timers
+  if(player2.reloadCooldown > 0) player2.reloadCooldown--;
+  if(player2.shootCooldown > 0) player2.shootCooldown--;
+
+  // Find closest zombie
+  let closestZombie = null;
+  let closestDist = 99999;
+  for(let z of zombies) {
+    let dx = z.x - player2.x;
+    let dy = z.y - player2.y;
+    let dist = Math.sqrt(dx*dx + dy*dy);
+    if(dist < closestDist) {
+      closestDist = dist;
+      closestZombie = z;
+    }
+  }
+
+  // Decide action based on zombie proximity
+  if(closestZombie && closestDist < 100) {
+    player2.currentAction = 'flee';
+  } else if(player2.currentAction !== 'move' && player2.thinkTime <= 0) {
+    // Pick a random point to move towards
+    player2.moveTarget = {
+      x: Math.random() * (WIDTH - PLAYER_SIZE) + PLAYER_SIZE/2,
+      y: Math.random() * (HEIGHT - PLAYER_SIZE) + PLAYER_SIZE/2
+    };
+    player2.currentAction = 'move';
+    player2.thinkTime = 60 + Math.random()*90; // frames AI "thinks" before next action
+  }
+
+  // Decrease think time
+  if(player2.thinkTime > 0) player2.thinkTime--;
+
+  // Movement
+  if(player2.currentAction === 'flee' && closestZombie) {
+    let dx = player2.x - closestZombie.x;
+    let dy = player2.y - closestZombie.y;
+    let dist = Math.sqrt(dx*dx + dy*dy) || 1;
+
+    // Move away at normal speed (no slowdown)
+    player2.x += (dx / dist) * PLAYER_SPEED;
+    player2.y += (dy / dist) * PLAYER_SPEED;
+  } else if(player2.currentAction === 'move') {
+    let dx = player2.moveTarget.x - player2.x;
+    let dy = player2.moveTarget.y - player2.y;
+    let dist = Math.sqrt(dx*dx + dy*dy) || 1;
+
+    // Move with some speed randomness and occasional pauses
+    if(dist > 6 && Math.random() > 0.07) {
+      let speed = PLAYER_SPEED * (0.4 + Math.random() * 0.6);
+      player2.x += (dx / dist) * speed;
+      player2.y += (dy / dist) * speed;
+    } else {
+      // Reached target
+      player2.currentAction = 'idle';
+      player2.thinkTime = 30 + Math.random() * 60;
+    }
+  } else {
+    // Idle - small random movement (like breathing/adjusting stance)
+    if(Math.random() < 0.02) {
+      player2.x += (Math.random() - 0.5) * 2;
+      player2.y += (Math.random() - 0.5) * 2;
+    }
+  }
+
+  // Clamp inside canvas
+  player2.x = Math.max(player2.size / 2, Math.min(WIDTH - player2.size / 2, player2.x));
+  player2.y = Math.max(player2.size / 2, Math.min(HEIGHT - player2.size / 2, player2.y));
+
+  // Aim and shoot logic
+  if(closestZombie) {
+    let targetAngle = Math.atan2(closestZombie.y - player2.y, closestZombie.x - player2.x);
+
+    // Add wobble to aim for imperfection
+    let wobbleAmount = 0.12;
+    if(player2.aimWobble === 0) player2.aimWobble = (Math.random() - 0.5) * wobbleAmount;
+    else player2.aimWobble += (Math.random() - 0.5) * 0.02;
+
+    // Clamp wobble
+    player2.aimWobble = Math.max(-wobbleAmount, Math.min(wobbleAmount, player2.aimWobble));
+
+    // Smooth rotate towards target + wobble
+    let desiredAngle = targetAngle + player2.aimWobble;
+    let diff = desiredAngle - player2.rotation;
+    while(diff > Math.PI) diff -= Math.PI * 2;
+    while(diff < -Math.PI) diff += Math.PI * 2;
+
+    let rotationSpeed = 0.04;
+    if(Math.abs(diff) < rotationSpeed) player2.rotation = desiredAngle;
+    else player2.rotation += diff > 0 ? rotationSpeed : -rotationSpeed;
+
+    // Keep rotation between 0 and 2PI
+    if(player2.rotation < 0) player2.rotation += Math.PI * 2;
+    if(player2.rotation > Math.PI * 2) player2.rotation -= Math.PI * 2;
+
+    // Shoot with some delay and chance, if ammo available
+    if(player2.ammo > 0 && player2.shootCooldown <= 0 && Math.random() < 0.07) {
+      shoot(player2);
+      player2.shootCooldown = 15 + Math.random() * 15; // delay between shots
+    }
+
+    // Reload if ammo empty instantly
+    if(player2.ammo <= 0 && player2.reloadCooldown <= 0) {
+      reload(player2);
+      player2.reloadCooldown = 40; // short cooldown before next reload possible
+    }
+  }
+}
+
+function update() {
+  if(gameOver) return;
+
+  updatePlayer(player1, {
+    up: 'w',
+    down: 's',
+    left: 'a',
+    right: 'd',
+    rotateLeft: 'q',
+    rotateRight: 'e',
+    shoot: 'f'
+  });
+
+  updateAI();
+
+  // Update bullets
+  for(let i = bullets.length - 1; i >= 0; i--) {
+    let b = bullets[i];
+    b.x += b.vx;
+    b.y += b.vy;
+    if(b.x < 0 || b.x > WIDTH || b.y < 0 || b.y > HEIGHT) {
+      bullets.splice(i, 1);
+    }
+  }
+
+  // Move zombies toward closest player
+  zombies.forEach((z, zi) => {
+    let dx1 = player1.x - z.x;
+    let dy1 = player1.y - z.y;
+    let dist1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+
+    let dx2 = player2.x - z.x;
+    let dy2 = player2.y - z.y;
+    let dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+
+    let targetPlayer = dist1 < dist2 ? player1 : player2;
+    let dx = targetPlayer.x - z.x;
+    let dy = targetPlayer.y - z.y;
+    let dist = Math.sqrt(dx * dx + dy * dy);
+
+    z.x += (dx / dist) * z.speed;
+    z.y += (dy / dist) * z.speed;
+
+    if(dist < (z.size / 2 + targetPlayer.size / 2)) {
+      gameOver = true;
+      document.getElementById('gameover').style.display = 'block';
+    }
+
+    for(let bi = bullets.length - 1; bi >= 0; bi--) {
+      let b = bullets[bi];
+      let dx2 = b.x - z.x;
+      let dy2 = b.y - z.y;
+      let dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+      if(dist2 < (b.size / 2 + z.size / 2)) {
+        zombies.splice(zi, 1);
+        bullets.splice(bi, 1);
+        b.owner.score++;
+        updateScoreboard();
+        if(zombies.length === 0) {
+          wave++;
+          for(let i = 0; i < wave + 2; i++) spawnZombie();
+        }
+        break;
+      }
+    }
+  });
+}
+
+function updateScoreboard() {
+  document.getElementById('scoreboard').innerText =
+    `P1 Score: ${player1.score} | Ammo: ${player1.ammo} | P2 Score: ${player2.score} | Ammo: ${player2.ammo} | Wave: ${wave}`;
+}
+
+function drawPlayer(player) {
+  ctx.save();
+  ctx.translate(player.x, player.y);
+  ctx.rotate(player.rotation);
+
+  ctx.fillStyle = player.color;
+  ctx.fillRect(-player.size / 2, -player.size / 2, player.size, player.size);
+
+  // Gun barrel
+  ctx.fillStyle = 'white';
+  ctx.fillRect(player.size / 2, -player.size / 6, player.size / 2, player.size / 3);
+
+  ctx.restore();
+}
+
+function draw() {
+  ctx.clearRect(0, 0, WIDTH, HEIGHT);
+
+  drawPlayer(player1);
+  drawPlayer(player2);
+
+  ctx.fillStyle = 'yellow';
+  bullets.forEach(b => {
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.size / 2, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  ctx.fillStyle = 'crimson';
+  zombies.forEach(z => {
+    ctx.fillRect(z.x - z.size / 2, z.y - z.size / 2, z.size, z.size);
+  });
+}
+
+function gameLoop() {
+  update();
+  draw();
+  if(!gameOver) requestAnimationFrame(gameLoop);
+}
+
+for(let i = 0; i < 3; i++) spawnZombie();
+updateScoreboard();
+gameLoop();
+</script>
+
+</body>
+</html>
